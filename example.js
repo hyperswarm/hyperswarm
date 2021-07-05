@@ -1,46 +1,32 @@
-'use strict'
-const { inspect } = require('util')
-const hyperswarm = require('./')
-const crypto = require('crypto')
-const swarm = hyperswarm({
-  announceLocalAddress: true
-})
+const Swarm = require('.')
 
-if (!process.argv[2]) { throw Error('node example.js <topic-key>') }
+start()
 
-const key = crypto.createHash('sha256')
-  .update(process.argv[2])
-  .digest()
+async function start () {
+  const swarm1 = new Swarm({ seed: Buffer.alloc(32).fill(4) })
+  const swarm2 = new Swarm({ seed: Buffer.alloc(32).fill(5) })
 
-swarm.connectivity((err, capabilities) => {
-  console.log('network capabilities', capabilities, err || '')
-})
+  console.log('SWARM 1 KEYPAIR:', swarm1.keyPair)
+  console.log('SWARM 2 KEYPAIR:', swarm2.keyPair)
 
-swarm.join(key, {
-  announce: true,
-  lookup: true
-}, function () {
-  console.log('fully joined...')
-})
+  swarm1.on('connection', function (connection, info) {
+    console.log('swarm 1 got a server connection:', connection.remotePublicKey, connection.publicKey, connection.handshakeHash)
+    connection.on('error', err => console.error('1 CONN ERR:', err))
+    // Do something with `connection`
+    // `info` is a PeerInfo object
+  })
+  swarm2.on('connection', function (connection, info) {
+    console.log('swarm 2 got a client connection:', connection.remotePublicKey, connection.publicKey, connection.handshakeHash)
+    connection.on('error', err => console.error('2 CONN ERR:', err))
+  })
 
-swarm.on('connection', function (socket, info) {
-  const {
-    priority,
-    status,
-    retries,
-    peer,
-    client
-  } = info
-  console.log('new connection!', `
-    priority: ${priority}
-    status: ${status}
-    retries: ${retries}
-    client: ${client}
-    peer: ${!peer ? peer : `
-      ${inspect(peer, { indentationLvl: 4 }).slice(2, -2)}
-    `}
-  `)
+  const key = Buffer.alloc(32).fill(7)
 
-  if (client) process.stdin.pipe(socket)
-  else socket.pipe(process.stdout)
-})
+  const discovery1 = swarm1.join(key)
+  await discovery1.flushed() // Wait for the first lookup/annnounce to complete.
+
+  swarm2.join(key)
+
+  // await swarm2.flush()
+  // await discovery.destroy() // Stop lookup up and announcing this topic.
+}
